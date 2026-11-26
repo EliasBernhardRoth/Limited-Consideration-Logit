@@ -2,7 +2,7 @@
 
 **Logit Models under Limited Consideration**
 
-This document describes the mathematical framework, structural estimation procedure and Monte Carlo design of the research project conducted at Heinrich Heine University Düsseldorf in 2024. The study compares preference estimates obtained using full, sampled and true consideration sets.
+This document presents the mathematical foundations of my simulation and structural estimation framework for analysing preference recovery under limited consideration. The framework combines stochastic choice simulation, three maximum likelihood estimation approaches and controlled Monte Carlo experiments to quantify the effects of model misspecification and increasing sample size.
 
 [Return to repository overview](README.md)
 
@@ -46,8 +46,6 @@ The price coefficient and product effects are common across consumers. Product 1
 
 <br>
 
-The price coefficient $`\beta_p`$ is expressed directly as a signed parameter.
-
 The additional utility components satisfy
 
 ```math
@@ -58,7 +56,7 @@ The additional utility components satisfy
 
 <br>
 
-The two shock families are independent of one another and of the price and consideration draws. The Gumbel scale is normalised to one. The simulation uses $`\sigma_\eta=0.25`$. Section 3.1 of the project paper states a standard normal Gaussian component.
+The two shock families are independent of one another and of the price and consideration draws. The Gumbel scale is normalised to one. The baseline calibration uses $`\sigma_\eta=0.25`$.
 
 <br>
 
@@ -158,7 +156,7 @@ P_{itj}^{\mathrm{sim}}=
 
 <br>
 
-The implementation draws a categorical choice from these probabilities using a uniform random number and the cumulative distribution. It does not need to draw the Gumbel shocks explicitly. Gaussian utility shocks are drawn explicitly before computing the probabilities.
+The simulation framework draws a categorical choice from these probabilities using a uniform random number and the cumulative distribution. It does not need to draw the Gumbel shocks explicitly. Gaussian utility shocks are drawn explicitly before computing the probabilities.
 
 The probabilities sum to one for every accepted set. A singleton set implies a certain choice of its only product.
 
@@ -362,7 +360,7 @@ Covariance is computed from the Hessian of the **total** negative log-likelihood
 
 ```math
 \begin{aligned}
-\widehat{\operatorname{Var}}_{\mathrm{model}}(\widehat\theta_m)
+\widehat{\mathrm{Var}}_{\mathrm{model}}(\widehat\theta_m)
 &=H_m(\widehat\theta_m)^{-1},\\[6pt]
 \widehat{\mathrm{SE}}_{m,k}
 &=\sqrt{\left[H_m(\widehat\theta_m)^{-1}\right]_{kk}}.
@@ -437,7 +435,7 @@ flowchart TD
 The NumPy generator is initialised separately for repetition $`r`$ using
 
 ```math
-\operatorname{seed}(r)=22{,}102{,}024+r,\qquad r=1,\ldots,R.
+\mathrm{seed}(r)=22{,}102{,}024+r,\qquad r=1,\ldots,R.
 ```
 
 <br>
@@ -456,9 +454,9 @@ For a parameter with true value $`\theta_k^0`$, calculate
 \begin{aligned}
 \overline{\widehat\theta}_k
 &=\frac{1}{R}\sum_{r=1}^{R}\widehat\theta_k^{(r)},\\
-\widehat{\operatorname{Bias}}_k
+\widehat{\mathrm{Bias}}_k
 &=\overline{\widehat\theta}_k-\theta_k^0,\\
-\widehat{\operatorname{RMSE}}_k
+\widehat{\mathrm{RMSE}}_k
 &=\sqrt{\frac{1}{R}\sum_{r=1}^{R}
 \left(\widehat\theta_k^{(r)}-\theta_k^0\right)^2}.
 \end{aligned}
@@ -477,7 +475,7 @@ The sample standard deviation and Monte Carlo standard error of the mean are
 s_{\mathrm{MC},k}
 &=\sqrt{\frac{1}{R-1}\sum_{r=1}^{R}
 \left(\widehat\theta_k^{(r)}-\overline{\widehat\theta}_k\right)^2},\\
-\operatorname{MCSE}(\overline{\widehat\theta}_k)
+\mathrm{MCSE}(\overline{\widehat\theta}_k)
 &=\frac{s_{\mathrm{MC},k}}{\sqrt R}.
 \end{aligned}
 ```
@@ -500,7 +498,7 @@ The parenthesised values in Table 1 are averages of the model-based standard err
 Table 1 attaches stars using the following descriptive ratio:
 
 ```math
-t_k^{\mathrm{paper}}
+t_k^{\mathrm{desc}}
 =\frac{\overline{\widehat\theta}_k}
 {\overline{\mathrm{SE}}_{\mathrm{model},k}}.
 ```
@@ -546,14 +544,14 @@ For each model and market count, the $`R=50`$ price estimates are smoothed with 
 The bandwidth follows the normal-reference rule of thumb:
 
 ```math
-h=0.9\min\left\{s,\frac{\operatorname{IQR}}{1.34}\right\}R^{-1/5},
+h=0.9\min\left\{s,\frac{\mathrm{IQR}}{1.34}\right\}R^{-1/5},
 ```
 
 <br>
 
 where $`s`$ is the sample standard deviation and IQR is the interquartile range of the estimates. If the scale is zero, the implementation falls back to a positive scale using the standard deviation, the absolute first observation, or one, in that order.
 
-The Python code evaluates the Gaussian mixture directly on 2,048 grid points. It retains all estimates and uses common axes that include the true price coefficient.
+The framework evaluates the Gaussian mixture directly on 2,048 grid points. It retains all estimates and uses common axes that include the true price coefficient.
 
 <br>
 
@@ -587,13 +585,7 @@ The target need not equal $`\theta^0`$. More observations can concentrate estima
 
 ### Preference recovery with different sets
 
-| Model | Mean price estimate, Table 1 | Understatement of magnitude |
-| --- | ---: | ---: |
-| FILM | −0.106218 | 38.60% |
-| MLM | −0.105787 | 38.85% |
-| WLM | −0.171502 | 0.87% |
-
-<br>
+The numerical comparison and density figures are presented in the [repository overview](README.md#selected-results).
 
 FILM combines preference and consideration effects in a likelihood that assumes universal consideration. MLM changes the estimation subset without observing actual consideration. WLM supplies the correct set and substantially improves recovery, but it still omits the Gaussian component.
 
@@ -603,26 +595,11 @@ Conditional logit satisfies IIA within a fixed set and for fixed utilities. Intr
 
 <br>
 
-## 12. Implementation architecture
+## 12. Reproducibility and limitations
 
-| Module | Purpose |
-| --- | --- |
-| `config.py` | Structural parameters, experiment profiles and seeds |
-| `simulation.py` | Prices, consideration sets, choices and availability masks |
-| `estimation.py` | Conditional likelihood, derivatives, optimisation and standard errors |
-| `monte_carlo.py` | Table 1 and small demonstration experiments |
-| `monte_carlo_density.py` | Experiments across four market counts |
-| `plot_results.py` | Density figures and formatted Table 1 |
+The modular Python framework separates calibration, simulation, estimation, Monte Carlo experiments and visualisation. Each experiment saves repetition-level estimates, summary statistics, a model comparison table and a settings file containing software versions and a completion flag. Figures and formatted tables are generated from these saved results. See the [repository structure and execution instructions](README.md#quick-start) for details.
 
-<br>
-
-Each experiment saves repetition-level estimates, summary statistics, a model comparison table and a settings file. The settings include software versions and a completion flag. Figures and formatted tables are generated from these saved results.
-
-<br>
-
-## 13. Limitations and reproducibility
-
-- Gaussian utility shocks use standard deviation 0.25. The simulation conditions consideration sets on being nonempty through resampling.
+- The baseline Gaussian utility standard deviation is 0.25. The accompanying 2024 project paper describes a standard normal Gaussian component in Section 3.1; the calibration documented here is the one used for the reported results.
 - WLM observes the true consideration sets by construction. The project does not estimate unknown sets or jointly estimate a consideration model.
 - Gaussian utility heterogeneity is omitted from all three fitted logit models. WLM's closer estimates do not establish exact unbiasedness or asymptotic consistency.
 - Conventional curvature-based standard errors and the star convention do not provide misspecification-robust inference. Monte Carlo variability is reported separately.
@@ -631,7 +608,7 @@ Each experiment saves repetition-level estimates, summary statistics, a model co
 
 <br>
 
-## 14. References
+## 13. References
 
 - Abaluck, J., & Adams-Prassl, A. (2021). What do consumers consider before they choose? Identification from asymmetric demand responses. *The Quarterly Journal of Economics*, 136(3), 1611–1663.
 - McFadden, D. (1978). Modelling the choice of residential location. In *Spatial Interaction Theory and Planning Models*, pp. 75–96. North-Holland.
@@ -642,6 +619,6 @@ Each experiment saves repetition-level estimates, summary statistics, a model co
 
 **Author:** Elias Roth
 
-Based on original research conducted at Heinrich Heine University Düsseldorf in 2024.
+Research conducted at Heinrich Heine University Düsseldorf in 2024.
 
 [Return to repository overview](README.md)
