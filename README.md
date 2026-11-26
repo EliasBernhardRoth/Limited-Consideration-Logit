@@ -17,7 +17,7 @@ This project develops a Python framework to investigate how unobserved considera
 
 This repository is a Python implementation of my 2024 project paper, *Konsistente Schätzungen von Logit-Modellen mit Limited Consideration – Eine Simulationsstudie*, conducted at the Düsseldorf Institute for Competition Economics (DICE), Heinrich Heine University Düsseldorf.
 
-[Model and experimental design](#model-and-experimental-design) · [Simulation outputs](results/) · [Figures](figures/) · [Statistical tables](tables/)
+[Technical methodology](METHODOLOGY.md) · [Model and experimental design](#model-and-experimental-design) · [Simulation outputs](results/) · [Figures](figures/) · [Statistical tables](tables/)
 
 <br>
 
@@ -170,6 +170,8 @@ For sampled estimation sets, uniform sampling without replacement gives the same
 
 All model parameters, experiment sizes and seed settings are defined in [config.py](config.py).
 
+For the formal model specification, derivation of the likelihood, analytic gradients and Hessians, numerical optimisation and Monte Carlo design, see the [Technical Methodology](METHODOLOGY.md).
+
 <br>
 
 ## Python Implementation
@@ -193,7 +195,7 @@ The code separates configuration, data generation, estimation, Monte Carlo exper
 - Use deterministic repetition seeds and fit all three models to the same dataset within each repetition.
 - Retain repetition-level estimates, standard errors, likelihood values, optimiser diagnostics, experiment settings and software versions.
 - Calculate Monte Carlo standard errors from variation across repetition-level estimates, separately from the average model-based standard errors.
-- Generate Gaussian density curves using the original R plotting code's bandwidth rule, and export figures in PNG and PDF format.
+- Generate Gaussian kernel density estimates using a normal-reference bandwidth rule and export figures in PNG and PDF format.
 
 The workflow connects statistical modelling with practical quantitative research tasks: parameter recovery, numerical optimisation, model-risk analysis and reproducible computational experiments.
 
@@ -242,6 +244,7 @@ For a small Monte Carlo run that saves CSV outputs, use `python3 monte_carlo.py 
 | Path | Contents |
 | :--- | :--- |
 | `README.md` | Project overview, selected results and instructions |
+| [METHODOLOGY.md](METHODOLOGY.md) | Mathematical framework, estimation procedure and Monte Carlo design |
 | `config.py` | Model calibration, experiment profiles and seeds |
 | `simulation.py` | Data generation and consideration-set construction |
 | `estimation.py` | Likelihood, optimisation and model-based standard errors |
@@ -257,15 +260,13 @@ For a small Monte Carlo run that saves CSV outputs, use `python3 monte_carlo.py 
 
 <br>
 
-## Research Provenance and Limitations
+## Limitations and Reproducibility
 
-The original project paper was completed in 2024 using MATLAB for data generation and R's `mlogit` package for estimation. This repository implements the simulation, estimation and visualisation workflow in Python. The numerical results reported above come from the Python implementation; exact numerical equality with the original MATLAB/R experiments is not claimed. Reusing seed numbers does not establish identical random draws across languages.
-
-The implementation follows the supplied original code where it differs from the paper's prose. In particular, the MATLAB code uses Gaussian utility shocks with standard deviation **0.25**, while Section 3.1 of the paper specifies a standard normal distribution. The Python implementation also adds explicit handling of empty consideration sets, which the original MATLAB code does not provide.
+The reported results use Gaussian utility shocks with standard deviation **0.25** and a simulation policy that redraws consideration indicators when the generated set is empty. The calibration and repetition seeds are documented in [config.py](config.py) and the [Technical Methodology](METHODOLOGY.md).
 
 The fitted models omit the additional Gaussian utility heterogeneity present in the simulation. Consequently, the WLM results demonstrate substantially better recovery in this calibration, rather than a general guarantee of unbiasedness or consistency. The experiments use simulated data and do not identify consumers' unknown consideration sets in an empirical application.
 
-In the formatted Table 1, parentheses contain the **average model-based standard error across repetitions**. These are distinct from Monte Carlo standard errors of the estimated means. Stars preserve the original R presentation rule based on the mean estimate divided by the mean model standard error; they are not formal tests of the Monte Carlo mean. Monte Carlo variability, bias and RMSE are reported separately in the summary CSV files.
+In the formatted Table 1, parentheses contain the **average model-based standard error across repetitions**. These are distinct from Monte Carlo standard errors of the estimated means. Significance stars are based on the mean estimate divided by the mean model standard error; they are not formal tests of the Monte Carlo mean. Monte Carlo variability, bias and RMSE are reported separately in the summary CSV files.
 
 <br>
 
