@@ -1,0 +1,78 @@
+{
+  "experiment": {
+    "name": "density_T100",
+    "n_consumers": 100,
+    "n_markets": 100,
+    "n_repetitions": 50
+  },
+  "model_parameters": {
+    "N_PRODUCTS": 10,
+    "REFERENCE_PRODUCT_ID": 1,
+    "PRICE_COEFFICIENT": -0.173,
+    "PRODUCT_EFFECTS": [
+      0.0,
+      0.368,
+      -0.497,
+      0.093,
+      0.088,
+      0.306,
+      -0.581,
+      -1.075,
+      -0.909,
+      -0.405
+    ],
+    "TRUE_COEFFICIENTS": [
+      -0.173,
+      0.368,
+      -0.497,
+      0.093,
+      0.088,
+      0.306,
+      -0.581,
+      -1.075,
+      -0.909,
+      -0.405
+    ],
+    "LIST_PRICES": [
+      22.98,
+      24.98,
+      22.98,
+      22.98,
+      24.98,
+      25.0,
+      24.98,
+      19.98,
+      24.98,
+      24.98
+    ],
+    "PRICE_SCALE": 0.3333333333333333,
+    "PRICE_RANDOM_WIDTH": 16.0,
+    "CONSIDERATION_PRICE_COEFFICIENT": 0.15,
+    "CONSIDERATION_INTERCEPTS": [
+      -2.5,
+      -2.5,
+      -2.5,
+      -2.5,
+      -2.5,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "UTILITY_SHOCK_STD": 0.25,
+    "N_SAMPLED_ALTERNATIVES": 4,
+    "BASE_SEED": 22102024
+  },
+  "seed_rule": "BASE_SEED + repetition, starting at repetition 1",
+  "empty_set_policy": "resample",
+  "software_versions": {
+    "python": "3.15.2",
+    "numpy": "2.5.5",
+    "scipy": "1.18.1"
+  },
+  "paper_star_convention": "Absolute mean estimate divided by mean model standard error; cutoffs 1.645, 1.96 and 2.576. This reproduces the R presentation, not a formal test of the Monte Carlo mean.",
+  "run_completed": true,
+  "total_empty_set_redraws": 0,
+  "completed_model_estimations": 150
+}
