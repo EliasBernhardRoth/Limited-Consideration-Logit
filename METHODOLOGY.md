@@ -2,7 +2,7 @@
 
 **Logit Models under Limited Consideration**
 
-This document describes the mathematical framework, structural estimation procedure and Monte Carlo design of the project paper conducted at Heinrich Heine University Düsseldorf in 2024, together with its Python implementation. The study compares preference estimates obtained using full, sampled and true consideration sets.
+This document describes the mathematical framework, structural estimation procedure and Monte Carlo design of the research project conducted at Heinrich Heine University Düsseldorf in 2024. The study compares preference estimates obtained using full, sampled and true consideration sets.
 
 [Return to repository overview](README.md)
 
@@ -46,7 +46,7 @@ The price coefficient and product effects are common across consumers. Product 1
 
 <br>
 
-The paper writes the price coefficient as $`-\alpha`$; this document uses $`\beta_p=-\alpha`$ to match the signed coefficient estimated in Python.
+The price coefficient $`\beta_p`$ is expressed directly as a signed parameter.
 
 The additional utility components satisfy
 
@@ -58,7 +58,7 @@ The additional utility components satisfy
 
 <br>
 
-The two shock families are independent of one another and of the price and consideration draws. The Gumbel scale is normalised to one. The value $`\sigma_\eta=0.25`$ follows the supplied MATLAB code; Section 3.1 of the paper instead states a standard normal Gaussian component.
+The two shock families are independent of one another and of the price and consideration draws. The Gumbel scale is normalised to one. The simulation uses $`\sigma_\eta=0.25`$. Section 3.1 of the project paper states a standard normal Gaussian component.
 
 <br>
 
@@ -115,7 +115,7 @@ Higher prices reduce utility but increase consideration probabilities. Products 
 
 ### Empty-set treatment
 
-Under the default Python policy, an empty set triggers a redraw of all consideration indicators at the same prices. This conditions the independent Bernoulli proposal on a nonempty set:
+Under the default simulation policy, an empty set triggers a redraw of all consideration indicators at the same prices. This conditions the independent Bernoulli proposal on a nonempty set:
 
 ```math
 q(\mathcal D\mid\mathbf p_{it})=
@@ -128,7 +128,7 @@ q(\mathcal D\mid\mathbf p_{it})=
 
 <br>
 
-The accepted indicators are therefore dependent through the nonempty-set restriction. Sets can contain one to ten products. Redraws are counted, and a finite retry limit prevents an endless loop. The optional `empty_set_policy="raise"` stops on an empty set instead. The original MATLAB code has no explicit empty-set handling.
+The accepted indicators are therefore dependent through the nonempty-set restriction. Sets can contain one to ten products. Redraws are counted, and a finite retry limit prevents an endless loop. The optional `empty_set_policy="raise"` stops on an empty set instead.
 
 <br>
 
@@ -371,7 +371,7 @@ Covariance is computed from the Hessian of the **total** negative log-likelihood
 
 <br>
 
-The implementation checks positive definiteness and numerical conditioning before inversion. Using the average-objective Hessian would require dividing its inverse by $`n`$. These conventional standard errors follow the original R workflow; they are not sandwich-robust standard errors under misspecification.
+The implementation checks positive definiteness and numerical conditioning before inversion. Using the average-objective Hessian would require dividing its inverse by $`n`$. These are conventional model-based standard errors, not sandwich-robust standard errors under misspecification.
 
 <br>
 
@@ -497,7 +497,7 @@ The parenthesised values in Table 1 are averages of the model-based standard err
 
 <br>
 
-The original R presentation attaches stars using
+Table 1 attaches stars using the following descriptive ratio:
 
 ```math
 t_k^{\mathrm{paper}}
@@ -516,7 +516,7 @@ t_k^{\mathrm{paper}}
 
 <br>
 
-This convention is retained for comparability. The ratio is not a test of the Monte Carlo mean or of equality to the true parameter, and its denominator is not a Monte Carlo standard error.
+The ratio is not a test of the Monte Carlo mean or of equality to the true parameter, and its denominator is not a Monte Carlo standard error.
 
 The README reports understatement of the price-coefficient magnitude as
 
@@ -543,7 +543,7 @@ For each model and market count, the $`R=50`$ price estimates are smoothed with 
 
 <br>
 
-The bandwidth follows R's `bw.nrd0` rule:
+The bandwidth follows the normal-reference rule of thumb:
 
 ```math
 h=0.9\min\left\{s,\frac{\operatorname{IQR}}{1.34}\right\}R^{-1/5},
@@ -551,9 +551,9 @@ h=0.9\min\left\{s,\frac{\operatorname{IQR}}{1.34}\right\}R^{-1/5},
 
 <br>
 
-where $`s`$ is the sample standard deviation and IQR is the interquartile range of the estimates. If the scale is zero, the implementation falls back to a positive scale using the standard deviation, the absolute first observation, or one, in that order, following R's convention.
+where $`s`$ is the sample standard deviation and IQR is the interquartile range of the estimates. If the scale is zero, the implementation falls back to a positive scale using the standard deviation, the absolute first observation, or one, in that order.
 
-The Python code evaluates the Gaussian mixture directly on 2,048 grid points. It retains all estimates and uses common axes that include the true price coefficient. This preserves the smoothing rule but does not reproduce the original R figures pixel for pixel. See the [R bandwidth documentation](https://stat.ethz.ch/R-manual/R-devel/library/stats/html/bandwidth.html).
+The Python code evaluates the Gaussian mixture directly on 2,048 grid points. It retains all estimates and uses common axes that include the true price coefficient.
 
 <br>
 
@@ -587,7 +587,7 @@ The target need not equal $`\theta^0`$. More observations can concentrate estima
 
 ### Preference recovery with different sets
 
-| Model | Mean price estimate, Python Table 1 | Understatement of magnitude |
+| Model | Mean price estimate, Table 1 | Understatement of magnitude |
 | --- | ---: | ---: |
 | FILM | −0.106218 | 38.60% |
 | MLM | −0.105787 | 38.85% |
@@ -622,13 +622,12 @@ Each experiment saves repetition-level estimates, summary statistics, a model co
 
 ## 13. Limitations and reproducibility
 
-- The original work generated data in MATLAB and estimated models in R. Python follows the supplied model code and the paper's experiment sizes; exact cross-language numerical equality is not assumed.
-- Gaussian utility shocks use standard deviation 0.25, following the code rather than the standard normal specification stated in the paper. Empty-set resampling is an explicit Python extension.
+- Gaussian utility shocks use standard deviation 0.25. The simulation conditions consideration sets on being nonempty through resampling.
 - WLM observes the true consideration sets by construction. The project does not estimate unknown sets or jointly estimate a consideration model.
 - Gaussian utility heterogeneity is omitted from all three fitted logit models. WLM's closer estimates do not establish exact unbiasedness or asymptotic consistency.
-- Conventional curvature-based standard errors and the retained star convention do not provide misspecification-robust inference. Monte Carlo variability is reported separately.
+- Conventional curvature-based standard errors and the star convention do not provide misspecification-robust inference. Monte Carlo variability is reported separately.
 - Increasing sample sizes is a finite-sample experiment, not a general proof of consistency. The exercise uses simulated data and does not establish performance under endogenous prices or empirical market heterogeneity.
-- The reported curves come from newly simulated datasets in each repetition, not bootstrap resamples of a fixed dataset. Matching seed numbers across programming languages does not guarantee identical draws.
+- The reported curves come from newly simulated datasets in each repetition, not bootstrap resamples of a fixed dataset.
 
 <br>
 
