@@ -2,15 +2,13 @@
 
 **Logit Models under Limited Consideration**
 
-This document presents the mathematical foundations of my simulation and structural estimation framework for analysing preference recovery under limited consideration. The framework combines stochastic choice simulation, three maximum likelihood estimation approaches and controlled Monte Carlo experiments to quantify the effects of model misspecification and increasing sample size.
+This document describes the mathematical model, numerical estimation and Monte Carlo framework implemented in Python, based on my research at Heinrich Heine University Düsseldorf (2024). The framework compares three logit estimators to investigate preference recovery under limited consideration.
 
 [Return to repository overview](README.md)
 
 <br>
 
 ## 1. Model specification
-
-### Decision environment
 
 Consumers choose among ten products across repeated market occasions. The consumer, market and product indices are
 
@@ -25,8 +23,6 @@ Consumers choose among ten products across repeated market occasions. The consum
 <br>
 
 Each consumer makes one choice in each market, giving $`n=NT`$ decision observations per repetition. There is no outside option. The market index identifies choice occasions; the model contains no dynamic optimisation or state dependence.
-
-### Utility
 
 Utility contains an observed component, an additional Gaussian component and a Type I Extreme Value shock:
 
@@ -56,11 +52,11 @@ The additional utility components satisfy
 
 <br>
 
-The two shock families are independent of one another and of the price and consideration draws. The Gumbel scale is normalised to one. The baseline calibration uses $`\sigma_\eta=0.25`$.
+The two shock families are independent of one another and of the price and consideration draws. The Gumbel scale is normalised to one. The simulation follows the MATLAB calibration, with Gaussian standard deviation $`\sigma_\eta=0.25`$ (see Section 9).
 
 <br>
 
-## 2. Prices and consideration sets
+## 2. Stochastic prices and consideration sets
 
 ### Price generation
 
@@ -99,7 +95,7 @@ The calibration is
 
 <br>
 
-Conditional on prices, independently draw the indicators and form the true set:
+Conditional on prices, independently draw the indicators to propose a consideration set:
 
 ```math
 w_{itj}\overset{\mathrm{iid}}{\sim}\mathcal U(0,1),\qquad
@@ -113,7 +109,7 @@ Higher prices reduce utility but increase consideration probabilities. Products 
 
 ### Empty-set treatment
 
-Under the default simulation policy, an empty set triggers a redraw of all consideration indicators at the same prices. This conditions the independent Bernoulli proposal on a nonempty set:
+Under the default simulation policy, an empty set triggers a redraw of all consideration indicators at the same prices. Conditional on a successful draw, the independent Bernoulli proposal is restricted to nonempty sets:
 
 ```math
 q(\mathcal D\mid\mathbf p_{it})=
@@ -126,11 +122,13 @@ q(\mathcal D\mid\mathbf p_{it})=
 
 <br>
 
-The accepted indicators are therefore dependent through the nonempty-set restriction. Sets can contain one to ten products. Redraws are counted, and a finite retry limit prevents an endless loop. The optional `empty_set_policy="raise"` stops on an empty set instead.
+The accepted indicators are dependent through the nonempty-set restriction. The simulation records redraws and limits the number of attempts to 10,000. Alternatively, `empty_set_policy="raise"` stops at the first empty set.
 
 <br>
 
-## 3. Conditional choice probabilities
+## 3. Choice probabilities and estimation sets
+
+### Conditional choice probabilities
 
 The consumer chooses the highest-utility alternative within the true consideration set:
 
@@ -156,13 +154,11 @@ P_{itj}^{\mathrm{sim}}=
 
 <br>
 
-The simulation framework draws a categorical choice from these probabilities using a uniform random number and the cumulative distribution. It does not need to draw the Gumbel shocks explicitly. Gaussian utility shocks are drawn explicitly before computing the probabilities.
+The simulation draws Gaussian shocks explicitly and then uses `softmax` to compute the conditional probabilities. A uniform draw and the cumulative probabilities determine the chosen product, without explicitly simulating the Gumbel shocks.
 
 The probabilities sum to one for every accepted set. A singleton set implies a certain choice of its only product.
 
-<br>
-
-## 4. Choice sets used in estimation
+### Choice sets used in estimation
 
 The three estimators use identical choices and prices but different availability masks:
 
@@ -178,11 +174,7 @@ The three estimators use identical choices and prices but different availability
 
 Here $`\mathcal B_{it}`$ contains four products sampled uniformly without replacement from $`\mathcal C\setminus\{y_{it}\}`$. Consequently, MLM always uses five alternatives. Its sampled set need not be a subset of the true consideration set.
 
-| Model | Information supplied to estimation | Main distinction |
-| --- | --- | --- |
-| FILM | All ten alternatives | Treats every product as considered |
-| MLM | Chosen product and four sampled alternatives | Sampling does not reveal actual consideration |
-| WLM | Actual consideration set | Provides the true-set benchmark |
+FILM assumes universal consideration; MLM uses a computationally sampled subset; WLM conditions on the consumer's actual set, observed by construction in the simulation.
 
 <br>
 
@@ -199,9 +191,7 @@ P_{itj}^{m}(\theta)=
 
 The chosen product must belong to the estimation set. Estimation uses prices, product identities, observed choices and the selected availability mask; stored simulation probabilities are not used to fit parameters.
 
-<br>
-
-## 5. Sampling alternatives and the likelihood correction
+### Sampling alternatives and the likelihood correction
 
 Let $`\pi(\mathcal S\mid j)`$ denote the probability of drawing estimation set $`\mathcal S`$ when product $`j`$ was chosen. Suppressing covariates, conditioning a correctly specified full-set logit on the sampled set gives
 
@@ -241,7 +231,7 @@ For the general sampling argument, see McFadden (1978) and [Train (2009), Sectio
 
 <br>
 
-## 6. Structural parameter estimation
+## 4. Structural maximum likelihood estimation
 
 ### Conditional likelihood
 
@@ -308,11 +298,7 @@ H_m(\theta)=\sum_{d=1}^{n}
 
 <br>
 
-Each Hessian contribution is a covariance matrix, making the negative log-likelihood convex for fixed estimation sets. Convexity does not exclude separation or singular information. Singleton sets contribute zero log-likelihood, gradient and Hessian.
-
-<br>
-
-## 7. Numerical optimisation and standard errors
+Each Hessian contribution is a covariance matrix, making the negative log-likelihood convex for fixed estimation sets. The implementation computes the gradient from predicted probabilities minus observed choice indicators and constructs the Hessian using probability-weighted price variances and product covariances. Convexity does not exclude separation or singular information. Singleton sets contribute zero log-likelihood, gradient and Hessian.
 
 ### Stable probability evaluation
 
@@ -326,9 +312,15 @@ The log-sum-exp calculation subtracts the largest available utility before expon
 
 <br>
 
-Unavailable alternatives receive log probability $`-\infty`$. Boolean masks exclude them from the likelihood denominator.
+Unavailable utilities are set to $`-\infty`$ using Boolean masks, so they contribute zero probability. For an available alternative, its log probability is computed directly as
 
-### Optimisation procedure
+```math
+\log P_{dj}^{m}(\theta)=V_{dj}(\theta)-\log\sum_{k\in\mathcal S_d^m}\exp(V_{dk}(\theta)).
+```
+
+<br>
+
+### Numerical optimisation
 
 The numerical objective is the average negative log-likelihood:
 
@@ -342,17 +334,11 @@ Q_m(\theta)=\frac{L_m(\theta)}{n},\qquad
 
 Scaling leaves the minimiser unchanged and makes objective magnitudes comparable across sample sizes.
 
-| Computational component | Implementation |
-| --- | --- |
-| Starting parameters | Zero vector |
-| Primary optimiser | SciPy `trust-exact` with analytic gradient and Hessian |
-| Fallback optimiser | BFGS with analytic gradient |
-| Accepted result | Successful optimisation and usable likelihood curvature |
-| Recorded diagnostics | Likelihood, optimiser, iterations and maximum absolute average gradient |
+The optimiser starts from a zero vector and uses SciPy's `trust-exact` method with the analytical gradient and Hessian. If this fails, BFGS is used with the analytical gradient. Both use a gradient tolerance of $`10^{-8}`$ and a maximum of 1,000 iterations. The fit must converge, have a finite objective and not worsen the starting likelihood beyond numerical tolerance. Recorded diagnostics include the likelihood, optimiser, iteration count and maximum absolute average gradient.
 
 <br>
 
-Input checks reject invalid choice sets, a chosen product outside its set, and datasets in which a product is never chosen. Curvature checks address singular or poorly conditioned information matrices.
+Input checks reject invalid model identifiers, invalid product IDs, nonfinite prices, chosen products outside their estimation sets and samples in which a product is never chosen. These checks alone do not guarantee identification.
 
 ### Conventional model-based standard errors
 
@@ -369,11 +355,11 @@ Covariance is computed from the Hessian of the **total** negative log-likelihood
 
 <br>
 
-The implementation checks positive definiteness and numerical conditioning before inversion. Using the average-objective Hessian would require dividing its inverse by $`n`$. These are conventional model-based standard errors, not sandwich-robust standard errors under misspecification.
+The information matrix is checked for finiteness, numerical conditioning and positive definiteness. Its inverse is computed via Cholesky decomposition: if $`H_m=CC'`$, the covariance is $`(C^{-1})'C^{-1}`$, obtained by solving the linear system $`CX=I`$. Using the average-objective Hessian instead would require dividing its inverse by $`n`$. These are conventional model-based standard errors, not sandwich-robust standard errors under misspecification.
 
 <br>
 
-## 8. Monte Carlo experimental design
+## 5. Monte Carlo experimental design
 
 ### Baseline calibration
 
@@ -406,7 +392,7 @@ The common coefficients are $`\beta_p^0=-0.173`$ and $`\gamma_p=0.15`$, with Gau
 
 <br>
 
-The full design generates 300 datasets, 2,300,000 decision observations and 900 model estimations. Each dataset supplies the same choices and prices to all three estimators.
+The full design comprises 300 dataset runs, 2,300,000 simulated decision observations and 900 model estimations. Each dataset supplies the same choices and prices to all three estimators. These totals count all runs, not necessarily independent observations across experiments.
 
 ### Simulation and repetition
 
@@ -440,11 +426,11 @@ The NumPy generator is initialised separately for repetition $`r`$ using
 
 <br>
 
-The seed rule restarts for each experiment. Results across market counts can therefore be statistically dependent through shared random streams; they are not independent simulation batches. Within each dataset, the consumer index is the outer simulation loop and the market index is the inner loop.
+The implementation uses NumPy's `RandomState`, with the same seed rule restarting for each experiment. Results across sample sizes can therefore be dependent through shared random streams. Decisions are generated in consumer-major order: all markets for one consumer before the next consumer. Matching MATLAB seed numbers does not imply identical random draws.
 
 <br>
 
-## 9. Statistical evaluation
+## 6. Statistical evaluation
 
 ### Parameter recovery
 
@@ -505,12 +491,7 @@ t_k^{\mathrm{desc}}
 
 <br>
 
-| Absolute ratio | Display |
-| --- | :---: |
-| At least 2.576 | \*\*\* |
-| At least 1.960, below 2.576 | \*\* |
-| At least 1.645, below 1.960 | \* |
-| Below 1.645 | No stars |
+The absolute ratio is compared with the thresholds 1.645, 1.960 and 2.576 to display one, two or three stars, respectively. Ratios below 1.645 receive no stars.
 
 <br>
 
@@ -528,7 +509,7 @@ For a negative coefficient, this is positive when the mean estimate is closer to
 
 <br>
 
-## 10. Density estimation
+## 7. Density estimation
 
 For each model and market count, the $`R=50`$ price estimates are smoothed with a Gaussian kernel:
 
@@ -541,7 +522,7 @@ For each model and market count, the $`R=50`$ price estimates are smoothed with 
 
 <br>
 
-The bandwidth follows the normal-reference rule of thumb:
+The bandwidth follows R's `bw.nrd0` normal-reference rule:
 
 ```math
 h=0.9\min\left\{s,\frac{\mathrm{IQR}}{1.34}\right\}R^{-1/5},
@@ -551,11 +532,11 @@ h=0.9\min\left\{s,\frac{\mathrm{IQR}}{1.34}\right\}R^{-1/5},
 
 where $`s`$ is the sample standard deviation and IQR is the interquartile range of the estimates. If the scale is zero, the implementation falls back to a positive scale using the standard deviation, the absolute first observation, or one, in that order.
 
-The framework evaluates the Gaussian mixture directly on 2,048 grid points. It retains all estimates and uses common axes that include the true price coefficient.
+The Gaussian mixture is evaluated directly on 2,048 grid points, using common axes that include the true price coefficient.
 
 <br>
 
-## 11. Interpretation of the findings
+## 8. Interpretation
 
 ### Structural estimation under misspecification
 
@@ -581,7 +562,7 @@ This generally differs from the full-set logit at the true utility coefficients.
 
 <br>
 
-The target need not equal $`\theta^0`$. More observations can concentrate estimates around a displaced target without correcting the specification.
+The target need not equal $`\theta^0`$. More observations can concentrate estimates around a displaced target without correcting the specification. In this calibration, the positive price effect on consideration counteracts the negative price effect on utility.
 
 ### Preference recovery with different sets
 
@@ -595,11 +576,11 @@ Conditional logit satisfies IIA within a fixed set and for fixed utilities. Intr
 
 <br>
 
-## 12. Reproducibility and limitations
+## 9. Limitations and reproducibility
 
-The modular Python framework separates calibration, simulation, estimation, Monte Carlo experiments and visualisation. Each experiment saves repetition-level estimates, summary statistics, a model comparison table and a settings file containing software versions and a completion flag. Figures and formatted tables are generated from these saved results. See the [repository structure and execution instructions](README.md#quick-start) for details.
+Each experiment saves repetition-level estimates, summary statistics, a comparison table and a settings file containing software versions and a completion flag. Figures and tables are generated from these outputs. See the [repository execution instructions](README.md#quick-start) for details.
 
-- The baseline Gaussian utility standard deviation is 0.25. The accompanying 2024 project paper describes a standard normal Gaussian component in Section 3.1; the calibration documented here is the one used for the reported results.
+- The Gaussian utility standard deviation is 0.25, following the supplied MATLAB code rather than the standard normal component described in Section 3.1 of the 2024 project paper. Empty sets are handled by resampling at fixed prices.
 - WLM observes the true consideration sets by construction. The project does not estimate unknown sets or jointly estimate a consideration model.
 - Gaussian utility heterogeneity is omitted from all three fitted logit models. WLM's closer estimates do not establish exact unbiasedness or asymptotic consistency.
 - Conventional curvature-based standard errors and the star convention do not provide misspecification-robust inference. Monte Carlo variability is reported separately.
@@ -608,7 +589,7 @@ The modular Python framework separates calibration, simulation, estimation, Mont
 
 <br>
 
-## 13. References
+## References
 
 - Abaluck, J., & Adams-Prassl, A. (2021). What do consumers consider before they choose? Identification from asymmetric demand responses. *The Quarterly Journal of Economics*, 136(3), 1611–1663.
 - McFadden, D. (1978). Modelling the choice of residential location. In *Spatial Interaction Theory and Planning Models*, pp. 75–96. North-Holland.
