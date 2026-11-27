@@ -14,10 +14,10 @@ from estimation import estimate_model, MODEL_LABELS
 
 OUTPUT_DIRECTORY = Path(__file__).resolve().parent / "results"
 
-PARAMETER_NAMES = ["price"] + [
-    f"product_{product}"
-    for product in range(2, cfg.N_PRODUCTS + 1)
-]
+PARAMETER_NAMES = ["price"]
+
+for product in range(2, cfg.N_PRODUCTS + 1):
+    PARAMETER_NAMES.append(f"product_{product}")
 
 MODEL_SHORT_NAMES = {
     "full": "FILM",
@@ -75,27 +75,20 @@ def summarize_model(model, coefficients, standard_errors):
     standard_errors = np.asarray(standard_errors, dtype=float)
     true_parameters = np.asarray(cfg.TRUE_COEFFICIENTS, dtype=float)
 
-    if (
-        coefficients.ndim != 2
-        or coefficients.shape[0] < 2
-        or coefficients.shape[1] != len(PARAMETER_NAMES)
-        or standard_errors.shape != coefficients.shape
-        or true_parameters.shape != (len(PARAMETER_NAMES),)
-    ):
-        raise ValueError(
-            "Invalid shapes or too few repetitions for summarizing."
-        )
+    n_repetitions = len(coefficients)
 
-    if (
-        not np.all(np.isfinite(coefficients))
-        or not np.all(np.isfinite(standard_errors))
-        or np.any(standard_errors <= 0)
-    ):
-        raise ValueError(
-            "Estimates must be finite and standard errors positive."
-        )
+    if n_repetitions < 2:
+        raise ValueError("At least two repetitions are required.")
 
-    n_repetitions = coefficients.shape[0]
+    if not np.all(np.isfinite(coefficients)):
+        raise ValueError("Estimates must be finite.")
+
+    if not np.all(np.isfinite(standard_errors)):
+        raise ValueError("Standard errors must be finite.")
+
+    if np.any(standard_errors <= 0):
+        raise ValueError("Standard errors must be positive.")
+
     means = coefficients.mean(axis=0)
 
     # Original Table 1: average the standard errors from individual fits.
@@ -103,21 +96,15 @@ def summarize_model(model, coefficients, standard_errors):
 
     # Separate Monte Carlo uncertainty across repetitions.
     mc_standard_deviations = coefficients.std(axis=0, ddof=1)
-    mc_standard_errors = (
-        mc_standard_deviations / np.sqrt(n_repetitions)
-    )
+    mc_standard_errors = mc_standard_deviations / np.sqrt(n_repetitions)
 
     biases = means - true_parameters
-    rmse = np.sqrt(
-        np.mean((coefficients - true_parameters) ** 2, axis=0)
-    )
+    rmse = np.sqrt(np.mean((coefficients - true_parameters) ** 2, axis=0))
 
     rows = []
 
     for index, parameter in enumerate(PARAMETER_NAMES):
-        ratio = float(
-            means[index] / mean_standard_errors[index]
-        )
+        ratio = float(means[index] / mean_standard_errors[index])
 
         rows.append(
             {
@@ -126,15 +113,9 @@ def summarize_model(model, coefficients, standard_errors):
                 "n_repetitions": n_repetitions,
                 "true_value": float(true_parameters[index]),
                 "mean_estimate": float(means[index]),
-                "mean_standard_error": float(
-                    mean_standard_errors[index]
-                ),
-                "mc_standard_deviation": float(
-                    mc_standard_deviations[index]
-                ),
-                "mc_standard_error": float(
-                    mc_standard_errors[index]
-                ),
+                "mean_standard_error": float(mean_standard_errors[index]),
+                "mc_standard_deviation": float(mc_standard_deviations[index]),
+                "mc_standard_error": float(mc_standard_errors[index]),
                 "bias": float(biases[index]),
                 "rmse": float(rmse[index]),
                 "paper_ratio": ratio,
@@ -147,10 +128,11 @@ def summarize_model(model, coefficients, standard_errors):
 
 def make_comparison_table(summary_rows):
     """Arrange the three models side by side, as in Table 1."""
-    lookup = {
-        (row["model"], row["parameter"]): row
-        for row in summary_rows
-    }
+    lookup = {}
+
+    for row in summary_rows:
+        key = (row["model"], row["parameter"])
+        lookup[key] = row
 
     table_rows = []
 
@@ -173,11 +155,10 @@ def make_comparison_table(summary_rows):
 
 def run_experiment(experiment, empty_set_policy="resample"):
     """Simulate and estimate all three models for every repetition."""
-    for key in ("n_consumers", "n_markets", "n_repetitions"):
-        if type(experiment[key]) is not int or experiment[key] < 1:
-            raise ValueError(f"{key} must be a positive integer.")
-
     n_repetitions = experiment["n_repetitions"]
+
+    if experiment["n_consumers"] < 1 or experiment["n_markets"] < 1:
+        raise ValueError("Consumers and markets must be positive.")
 
     if n_repetitions < 2:
         raise ValueError("At least two repetitions are required.")
@@ -200,11 +181,14 @@ def run_experiment(experiment, empty_set_policy="resample"):
     table_path = directory / f"table_R{n_repetitions}.csv"
     settings_path = directory / f"settings_R{n_repetitions}.json"
 
+    model_parameters = {}
+
+    for name in MODEL_SETTINGS:
+        model_parameters[name] = getattr(cfg, name)
+
     settings = {
         "experiment": dict(experiment),
-        "model_parameters": {
-            name: getattr(cfg, name) for name in MODEL_SETTINGS
-        },
+        "model_parameters": model_parameters,
         "seed_rule": (
             "BASE_SEED + repetition, starting at repetition 1"
         ),
@@ -225,12 +209,12 @@ def run_experiment(experiment, empty_set_policy="resample"):
 
     save_settings(settings_path, settings)
 
-    coefficient_results = {
-        model: [] for model in MODEL_LABELS
-    }
-    standard_error_results = {
-        model: [] for model in MODEL_LABELS
-    }
+    coefficient_results = {}
+    standard_error_results = {}
+
+    for model in MODEL_LABELS:
+        coefficient_results[model] = []
+        standard_error_results[model] = []
     total_redraws = 0
 
     raw_columns = [
@@ -245,9 +229,13 @@ def run_experiment(experiment, empty_set_policy="resample"):
         "iterations",
         "max_average_gradient",
         "converged",
-        *[f"coef_{name}" for name in PARAMETER_NAMES],
-        *[f"se_{name}" for name in PARAMETER_NAMES],
     ]
+
+    for name in PARAMETER_NAMES:
+        raw_columns.append(f"coef_{name}")
+
+    for name in PARAMETER_NAMES:
+        raw_columns.append(f"se_{name}")
 
     print(f"Experiment: {experiment['name']}", flush=True)
     print(
@@ -308,39 +296,25 @@ def run_experiment(experiment, empty_set_policy="resample"):
                     fit["coefficients"][0]
                 )
 
-                writer.writerow(
-                    {
-                        "experiment": experiment["name"],
-                        "repetition": repetition,
-                        "seed": seed,
-                        "model": model,
-                        "n_decisions": fit["n_decisions"],
-                        "empty_set_redraws": data["empty_set_redraws"],
-                        "negative_log_likelihood": fit[
-                            "negative_log_likelihood"
-                        ],
-                        "optimizer": fit["optimizer"],
-                        "iterations": fit["iterations"],
-                        "max_average_gradient": fit[
-                            "max_average_gradient"
-                        ],
-                        "converged": fit["converged"],
-                        **{
-                            f"coef_{name}": float(value)
-                            for name, value in zip(
-                                PARAMETER_NAMES,
-                                fit["coefficients"],
-                            )
-                        },
-                        **{
-                            f"se_{name}": float(value)
-                            for name, value in zip(
-                                PARAMETER_NAMES,
-                                fit["standard_errors"],
-                            )
-                        },
-                    }
-                )
+                row = {
+                    "experiment": experiment["name"],
+                    "repetition": repetition,
+                    "seed": seed,
+                    "model": model,
+                    "n_decisions": fit["n_decisions"],
+                    "empty_set_redraws": data["empty_set_redraws"],
+                    "negative_log_likelihood": fit["negative_log_likelihood"],
+                    "optimizer": fit["optimizer"],
+                    "iterations": fit["iterations"],
+                    "max_average_gradient": fit["max_average_gradient"],
+                    "converged": fit["converged"],
+                }
+
+                for index, name in enumerate(PARAMETER_NAMES):
+                    row[f"coef_{name}"] = float(fit["coefficients"][index])
+                    row[f"se_{name}"] = float(fit["standard_errors"][index])
+
+                writer.writerow(row)
                 file.flush()
 
             print(
@@ -399,10 +373,9 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    experiment = (
-        cfg.TABLE_EXPERIMENT
-        if args.experiment == "table"
-        else cfg.DEMO_EXPERIMENT
-    )
+    if args.experiment == "table":
+        experiment = cfg.TABLE_EXPERIMENT
+    else:
+        experiment = cfg.DEMO_EXPERIMENT
 
     run_experiment(experiment)

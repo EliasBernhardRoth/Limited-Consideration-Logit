@@ -7,50 +7,49 @@ from monte_carlo import run_experiment
 
 def run_density_experiments(n_markets=None):
     """Run the market-size experiments used for Figure 1."""
-    if n_markets is None:
-        experiments = list(cfg.DENSITY_EXPERIMENTS)
-    else:
-        experiments = [
-            experiment
-            for experiment in cfg.DENSITY_EXPERIMENTS
-            if experiment["n_markets"] == n_markets
-        ]
+
+    experiments = []
+
+    # Select the requested market sizes.
+    for experiment in cfg.DENSITY_EXPERIMENTS:
+        if n_markets is None or experiment["n_markets"] == n_markets:
+            experiments.append(experiment)
 
     if not experiments:
-        raise ValueError(
-            "No density experiment matches the requested market size."
-        )
+        raise ValueError("No matching density experiment.")
 
-    total_repetitions = sum(
-        experiment["n_repetitions"]
-        for experiment in experiments
-    )
+    # Calculate the total number of simulations and estimations.
+    total_repetitions = 0
+
+    for experiment in experiments:
+        total_repetitions += experiment["n_repetitions"]
+
     total_fits = len(MODEL_LABELS) * total_repetitions
 
     print(f"Market-size settings: {len(experiments)}", flush=True)
     print(f"Simulated datasets: {total_repetitions}", flush=True)
     print(f"Total model estimations: {total_fits}", flush=True)
 
+    # Run each selected experiment.
     for index, experiment in enumerate(experiments, start=1):
+
         print(
             f"\nSetting {index}/{len(experiments)}: "
             f"{experiment['n_markets']} markets per consumer",
             flush=True,
         )
 
-        # Repetitions use the original MATLAB seed numbering.
-        # Within each repetition, all three models share the same dataset.
         run_experiment(experiment)
 
-    print(
-        "\nAll requested density experiments completed successfully."
-    )
+    print("\nAll requested density experiments completed successfully.")
 
 
 if __name__ == "__main__":
+
     parser = argparse.ArgumentParser(
         description="Run the four market-size experiments for Figure 1."
     )
+
     parser.add_argument(
         "--markets",
         type=int,
@@ -58,6 +57,7 @@ if __name__ == "__main__":
         default=None,
         help="Run one market size. By default, run all four.",
     )
+
     args = parser.parse_args()
 
     run_density_experiments(n_markets=args.markets)

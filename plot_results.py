@@ -44,14 +44,18 @@ def check_settings(experiment):
     repetitions = experiment["n_repetitions"]
     with (folder / f"settings_R{repetitions}.json").open(encoding="utf-8") as file:
         settings = json.load(file)
-    current = {name: getattr(cfg, name) for name in MODEL_SETTINGS}
+    current = {}
+    for name in MODEL_SETTINGS:
+        current[name] = getattr(cfg, name)
     current = json.loads(json.dumps(current))  # Convert tuples to JSON lists.
-    if (settings.get("run_completed") is not True
-            or settings.get("experiment") != experiment
-            or settings.get("completed_model_estimations") != 3 * repetitions
-            or settings.get("model_parameters") != current
-            or settings.get("empty_set_policy") not in ("resample", "raise")):
-        raise ValueError(f"Incomplete results or settings mismatch: {folder}")
+    if settings.get("run_completed") is not True:
+        raise ValueError(f"Incomplete run: {folder}")
+    if settings.get("completed_model_estimations") != 3 * repetitions:
+        raise ValueError(f"Incomplete estimations: {folder}")
+    if settings.get("experiment") != experiment or settings.get("model_parameters") != current:
+        raise ValueError(f"Settings mismatch: {folder}")
+    if settings.get("empty_set_policy") not in ("resample", "raise"):
+        raise ValueError(f"Invalid empty-set policy: {folder}")
     return folder
 
 
@@ -59,39 +63,59 @@ def load_density_estimates(experiment):
     folder = check_settings(experiment)
     repetitions = experiment["n_repetitions"]
     rows = read_csv(folder / f"raw_estimates_R{repetitions}.csv")
-    estimates = {model: {} for model in MODEL_NAMES}
-    if len(rows) != 3 * repetitions:
-        raise ValueError(f"Wrong number of estimates in {folder}")
+    estimates = {}
+    for model in MODEL_NAMES:
+        estimates[model] = {}
+
     for row in rows:
         model = row["model"]
         repetition = int(row["repetition"])
         value = float(row["coef_price"])
-        if (model not in estimates or not 1 <= repetition <= repetitions
-                or repetition in estimates[model]
-                or row["experiment"] != experiment["name"]
-                or int(row["seed"]) != cfg.simulation_seed(repetition)
-                or int(row["n_decisions"]) != experiment["n_consumers"] * experiment["n_markets"]
-                or row["converged"].lower() != "true" or not np.isfinite(value)):
-            raise ValueError(f"Invalid or duplicate estimate in {folder}")
+
+        if model not in estimates or not 1 <= repetition <= repetitions:
+            raise ValueError(f"Invalid model or repetition in {folder}")
+        if repetition in estimates[model]:
+            raise ValueError(f"Duplicate estimate in {folder}")
+        if row["experiment"] != experiment["name"]:
+            raise ValueError(f"Wrong experiment in {folder}")
+        if int(row["seed"]) != cfg.simulation_seed(repetition):
+            raise ValueError(f"Wrong seed in {folder}")
+        if int(row["n_decisions"]) != experiment["n_consumers"] * experiment["n_markets"]:
+            raise ValueError(f"Wrong sample size in {folder}")
+        if row["converged"].lower() != "true" or not np.isfinite(value):
+            raise ValueError(f"Invalid estimate in {folder}")
+
         estimates[model][repetition] = value
-    if any(len(values) != repetitions for values in estimates.values()):
-        raise ValueError(f"Missing model repetitions in {folder}")
-    return {
-        model: np.array([values[r] for r in range(1, repetitions + 1)])
-        for model, values in estimates.items()
-    }
+
+    # Keep estimates in repetition order.
+    result = {}
+    for model in MODEL_NAMES:
+        values = estimates[model]
+        if len(values) != repetitions:
+            raise ValueError(f"Missing model repetitions in {folder}")
+
+        ordered_values = []
+        for r in range(1, repetitions + 1):
+            ordered_values.append(values[r])
+        result[model] = np.array(ordered_values)
+
+    return result
 
 
 def r_bandwidth(values):
     """R's bw.nrd0 rule, including its fallback for coincident quartiles."""
     values = np.asarray(values, dtype=float)
-    if values.ndim != 1 or values.size < 2 or not np.all(np.isfinite(values)):
+    if values.size < 2 or not np.all(np.isfinite(values)):
         raise ValueError("Density estimation needs at least two finite values.")
     standard_deviation = np.std(values, ddof=1)
     lower_quartile, upper_quartile = np.percentile(values, [25, 75])
     scale = min(standard_deviation, (upper_quartile - lower_quartile) / 1.34)
     if scale <= 0:
-        scale = standard_deviation or abs(values[0]) or 1.0
+        scale = standard_deviation
+        if scale == 0:
+            scale = abs(values[0])
+        if scale == 0:
+            scale = 1.0
     return 0.9 * scale * values.size ** (-0.2)
 
 
@@ -99,7 +123,8 @@ def gaussian_density(grid, values):
     # Direct Gaussian mixture; R uses an FFT approximation to the same KDE.
     bandwidth = r_bandwidth(values)
     distances = (grid[:, None] - values[None, :]) / bandwidth
-    return np.exp(-0.5 * distances ** 2).mean(axis=1) / (bandwidth * np.sqrt(2 * np.pi))
+    kernels = np.exp(-0.5 * distances ** 2)
+    return kernels.mean(axis=1) / (bandwidth * np.sqrt(2 * np.pi))
 
 
 def save_figure(figure, folder, name):
@@ -130,16 +155,28 @@ def draw_density_panel(axis, model, curves, grid, maximum_density):
 
 
 def create_density_figures(data):
-    all_values = [values for models in data.values() for values in models.values()]
-    left = min([cfg.PRICE_COEFFICIENT] + [v.min() - 4 * r_bandwidth(v) for v in all_values])
-    right = max([cfg.PRICE_COEFFICIENT] + [v.max() + 4 * r_bandwidth(v) for v in all_values])
+    left = cfg.PRICE_COEFFICIENT
+    right = cfg.PRICE_COEFFICIENT
+
+    # Find common axis limits for all density curves.
+    for models in data.values():
+        for values in models.values():
+            bandwidth = r_bandwidth(values)
+            left = min(left, values.min() - 4 * bandwidth)
+            right = max(right, values.max() + 4 * bandwidth)
+
     padding = 0.025 * (right - left)
     grid = np.linspace(left - padding, right + padding, 2048)
-    curves = {
-        (model, markets): gaussian_density(grid, values)
-        for markets, models in data.items() for model, values in models.items()
-    }
-    maximum_density = max(density.max() for density in curves.values())
+
+    curves = {}
+    maximum_density = 0
+
+    for markets, models in data.items():
+        for model, values in models.items():
+            density = gaussian_density(grid, values)
+            curves[(model, markets)] = density
+            maximum_density = max(maximum_density, density.max())
+
     subtitle = (f"{cfg.DENSITY_N_CONSUMERS} consumers per market; "
                 f"{cfg.DENSITY_N_REPETITIONS} Monte Carlo repetitions per curve")
 
@@ -166,9 +203,13 @@ def create_density_figures(data):
 
 
 def paper_stars(ratio):
-    for threshold, stars in ((2.576, "***"), (1.96, "**"), (1.645, "*")):
-        if abs(ratio) >= threshold:
-            return stars
+    ratio = abs(ratio)
+    if ratio >= 2.576:
+        return "***"
+    if ratio >= 1.96:
+        return "**"
+    if ratio >= 1.645:
+        return "*"
     return ""
 
 
@@ -176,10 +217,14 @@ def load_table_rows():
     experiment = cfg.TABLE_EXPERIMENT
     folder = check_settings(experiment)
     rows = read_csv(folder / f"table_R{experiment['n_repetitions']}.csv")
-    by_parameter = {row["parameter"]: row for row in rows}
+    by_parameter = {}
+    for row in rows:
+        by_parameter[row["parameter"]] = row
     if len(rows) != len(PARAMETER_NAMES) or set(by_parameter) != set(PARAMETER_NAMES):
         raise ValueError("Table 1 has missing, extra or duplicate parameters.")
-    ordered_rows = [by_parameter[name] for name in PARAMETER_NAMES]
+    ordered_rows = []
+    for name in PARAMETER_NAMES:
+        ordered_rows.append(by_parameter[name])
     for row, truth in zip(ordered_rows, cfg.TRUE_COEFFICIENTS):
         if not np.isclose(float(row["true_value"]), truth, rtol=0, atol=1e-12):
             raise ValueError("Table 1 true values do not match config.py.")
@@ -201,12 +246,13 @@ def create_table(rows):
     headers = ["Parameter", "True value", "FILM", "MLM", "WLM"]
     cells = []
     for row in rows:
-        label = "Price" if row["parameter"] == "price" else row["parameter"].replace("_", " ").title()
+        label = row["parameter"].replace("_", " ").title()
         cell_row = [label, f"{float(row['true_value']):.4f}"]
         for model in MODEL_NAMES.values():
             estimate = float(row[f"{model}_estimate"])
             standard_error = float(row[f"{model}_mean_se"])
-            cell_row.append(f"{estimate:.4f}{row[f'{model}_stars']}\n({standard_error:.4f})")
+            stars = row[f"{model}_stars"]
+            cell_row.append(f"{estimate:.4f}{stars}\n({standard_error:.4f})")
         cells.append(cell_row)
 
     notes = [
@@ -220,9 +266,13 @@ def create_table(rows):
     markdown = ["# Table 1: Monte Carlo estimates", "", subtitle, "",
                 "| " + " | ".join(headers) + " |", "| :--- | ---: | ---: | ---: | ---: |"]
     for cell_row in cells:
-        formatted = [cell.replace("\n", " ").replace("*", "\\*") for cell in cell_row]
+        formatted = []
+        for cell in cell_row:
+            formatted.append(cell.replace("\n", " ").replace("*", "\\*"))
         markdown.append("| " + " | ".join(formatted) + " |")
-    markdown += [""] + [note.replace("*", "\\*") for note in notes]
+    markdown.append("")
+    for note in notes:
+        markdown.append(note.replace("*", "\\*"))
     markdown += ["", f"[Full-precision CSV](../../results/{experiment['name']}/table_R{repetitions}.csv)", ""]
     path = TABLE_DIRECTORY / "table_1.md"
     path.write_text("\n".join(markdown), encoding="utf-8")
@@ -254,8 +304,9 @@ def main():
     plt.rcParams.update({"font.family": "DejaVu Serif", "font.size": 10,
                          "pdf.fonttype": 42, "axes.titlepad": 12})
     print("Checking saved results...")
-    data = {experiment["n_markets"]: load_density_estimates(experiment)
-            for experiment in cfg.DENSITY_EXPERIMENTS}
+    data = {}
+    for experiment in cfg.DENSITY_EXPERIMENTS:
+        data[experiment["n_markets"]] = load_density_estimates(experiment)
     rows = load_table_rows()
     print("Creating density figures...")
     create_density_figures(data)

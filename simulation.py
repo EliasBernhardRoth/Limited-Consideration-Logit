@@ -17,34 +17,17 @@ def simulate_data(
     Simulate one dataset for the three choice-set models.
 
     Each row represents one consumer-market decision.
-    Product IDs run from 1 to N_PRODUCTS.
+    Product IDs start at 1.
 
-    empty_set_policy:
-        "resample": redraw consideration at the same prices until nonempty.
-        "raise": stop immediately if a consideration set is empty.
-
-    Redrawing empty sets is an explicit extension of the original code.
+    Empty consideration sets are either redrawn at the same
+    prices or treated as an error.
     """
-    for name, value in (
-        ("n_consumers", n_consumers),
-        ("n_markets", n_markets),
-    ):
-        if (
-            isinstance(value, (bool, np.bool_))
-            or not isinstance(value, (int, np.integer))
-            or value < 1
-        ):
-            raise ValueError(f"{name} must be a positive integer.")
 
-    if (
-        isinstance(seed, (bool, np.bool_))
-        or not isinstance(seed, (int, np.integer))
-        or not 0 <= seed < 2**32
-    ):
-        raise ValueError("seed must be an integer between 0 and 2**32 - 1.")
+    if n_consumers < 1 or n_markets < 1:
+        raise ValueError("Consumers and markets must be positive.")
 
     if empty_set_policy not in ("resample", "raise"):
-        raise ValueError("empty_set_policy must be 'resample' or 'raise'.")
+        raise ValueError("Invalid empty-set policy.")
 
     n_products = cfg.N_PRODUCTS
     n_sampled = cfg.N_SAMPLED_ALTERNATIVES
@@ -52,70 +35,51 @@ def simulate_data(
     list_prices = np.asarray(cfg.LIST_PRICES, dtype=float)
     product_effects = np.asarray(cfg.PRODUCT_EFFECTS, dtype=float)
     consideration_intercepts = np.asarray(
-        cfg.CONSIDERATION_INTERCEPTS,
-        dtype=float,
+        cfg.CONSIDERATION_INTERCEPTS, dtype=float
     )
-
-    for values in (list_prices, product_effects, consideration_intercepts):
-        if values.shape != (n_products,) or not np.all(np.isfinite(values)):
-            raise ValueError(
-                "Product parameters must contain one finite value per product."
-            )
-
-    if (
-        isinstance(n_sampled, (bool, np.bool_))
-        or not isinstance(n_sampled, (int, np.integer))
-        or not 0 <= n_sampled < n_products
-    ):
-        raise ValueError("Invalid number of sampled alternatives.")
-
-    scalar_parameters = (
-        cfg.PRICE_COEFFICIENT,
-        cfg.PRICE_SCALE,
-        cfg.PRICE_RANDOM_WIDTH,
-        cfg.CONSIDERATION_PRICE_COEFFICIENT,
-        cfg.UTILITY_SHOCK_STD,
-    )
-
-    if not np.all(np.isfinite(scalar_parameters)):
-        raise ValueError("Model parameters must be finite.")
-
-    if cfg.PRICE_RANDOM_WIDTH < 0 or cfg.UTILITY_SHOCK_STD < 0:
-        raise ValueError(
-            "Price variation and shock standard deviation must be nonnegative."
-        )
 
     n_decisions = int(n_consumers) * int(n_markets)
-    rng = np.random.RandomState(int(seed))
+    rng = np.random.RandomState(seed)
 
+    # Initialise arrays.
     prices = np.empty((n_decisions, n_products))
     probabilities = np.zeros((n_decisions, n_products))
+
     true_set = np.zeros((n_decisions, n_products), dtype=bool)
     sampled_set = np.zeros((n_decisions, n_products), dtype=bool)
+
     chosen_product = np.empty(n_decisions, dtype=np.int64)
 
     product_indices = np.arange(n_products)
     empty_set_redraws = 0
 
-    # All markets for consumer 1, then all markets for consumer 2, etc.
+    # Simulate each consumer-market decision.
     for decision in range(n_decisions):
+
+        # Generate prices.
         current_prices = (
             list_prices * cfg.PRICE_SCALE
             + cfg.PRICE_RANDOM_WIDTH * rng.random_sample(n_products)
         )
 
+        # Calculate consideration probabilities.
         attention = (
             cfg.CONSIDERATION_PRICE_COEFFICIENT * current_prices
             + consideration_intercepts
         )
+
         consideration_probabilities = expit(attention)
 
+        # Draw the consumer's consideration set.
         considered = (
             rng.random_sample(n_products) < consideration_probabilities
         )
+
         attempts = 1
 
+        # Redraw empty consideration sets.
         while not np.any(considered):
+
             if empty_set_policy == "raise":
                 raise RuntimeError(
                     f"Empty consideration set at decision {decision + 1}, "
@@ -123,62 +87,73 @@ def simulate_data(
                 )
 
             if attempts >= MAX_CONSIDERATION_DRAWS:
-                raise RuntimeError(
-                    "Could not draw a nonempty consideration set. "
-                    "Check the consideration parameters."
-                )
+                raise RuntimeError("Could not draw a nonempty consideration set.")
 
             considered = (
                 rng.random_sample(n_products) < consideration_probabilities
             )
+
             empty_set_redraws += 1
             attempts += 1
 
+        # Calculate product utilities.
         utilities = (
             cfg.PRICE_COEFFICIENT * current_prices
             + product_effects
             + cfg.UTILITY_SHOCK_STD * rng.standard_normal(n_products)
         )
 
-        # Only considered products receive positive choice probabilities.
-        considered_indices = np.flatnonzero(considered)
-        considered_probabilities = softmax(utilities[considered_indices])
+        # Calculate choice probabilities within the consideration set.
+        considered_indices = product_indices[considered]
+        considered_probabilities = softmax(utilities[considered])
 
+        # Draw the chosen product.
         cumulative_probabilities = np.cumsum(considered_probabilities)
         cumulative_probabilities[-1] = 1.0
 
+        draw = rng.random_sample()
+
         position = np.searchsorted(
             cumulative_probabilities,
-            rng.random_sample(),
+            draw,
             side="right",
         )
+
         chosen_index = considered_indices[position]
 
-        # Sample uniformly from ALL other products, including products
-        # outside the consumer's true consideration set.
+        # Sample alternatives from all non-chosen products.
         other_products = product_indices[product_indices != chosen_index]
+
         sampled_others = rng.choice(
             other_products,
             size=n_sampled,
             replace=False,
         )
 
+        # Store the simulated decision.
         prices[decision] = current_prices
         true_set[decision] = considered
-        probabilities[decision, considered_indices] = considered_probabilities
+
+        probabilities[decision, considered] = considered_probabilities
+
         chosen_product[decision] = chosen_index + 1
 
         sampled_set[decision, chosen_index] = True
         sampled_set[decision, sampled_others] = True
 
+    # Create consumer and market IDs.
+    consumer_ids = np.repeat(
+        np.arange(1, n_consumers + 1), n_markets
+    )
+
+    market_ids = np.tile(
+        np.arange(1, n_markets + 1), n_consumers
+    )
+
     return {
         "decision_id": np.arange(1, n_decisions + 1),
-        "consumer_id": np.repeat(
-            np.arange(1, n_consumers + 1), n_markets
-        ),
-        "market_id": np.tile(
-            np.arange(1, n_markets + 1), n_consumers
-        ),
+        "consumer_id": consumer_ids,
+        "market_id": market_ids,
         "prices": prices,
         "probabilities": probabilities,
         "chosen_product": chosen_product,
@@ -192,6 +167,7 @@ def simulate_data(
 
 
 if __name__ == "__main__":
+
     experiment = cfg.DEMO_EXPERIMENT
 
     data = simulate_data(
@@ -201,46 +177,52 @@ if __name__ == "__main__":
     )
 
     n_decisions = experiment["n_consumers"] * experiment["n_markets"]
+
     rows = np.arange(n_decisions)
     chosen_indices = data["chosen_product"] - 1
 
-    assert data["prices"].shape == (n_decisions, cfg.N_PRODUCTS)
+    # Check that prices are finite.
     assert np.all(np.isfinite(data["prices"]))
-    assert np.all(data["true_set"].sum(axis=1) >= 1)
+
+    # Check that the chosen product belongs to both choice sets.
     assert np.all(data["true_set"][rows, chosen_indices])
     assert np.all(data["sampled_set"][rows, chosen_indices])
 
+    # Check the size of the sampled choice set.
     assert np.all(
         data["sampled_set"].sum(axis=1)
         == cfg.N_SAMPLED_ALTERNATIVES + 1
     )
 
-    np.testing.assert_allclose(
+    # Check that choice probabilities sum to one.
+    assert np.allclose(
         data["probabilities"].sum(axis=1),
         1.0,
         rtol=0,
         atol=1e-12,
     )
+
+    # Products outside the consideration set cannot be chosen.
     assert np.all(data["probabilities"][~data["true_set"]] == 0)
 
     print("Simulation completed successfully.")
     print(f"Decisions: {n_decisions}")
     print(f"Price matrix shape: {data['prices'].shape}")
+
     print(
         "Average true consideration-set size: "
         f"{data['true_set'].sum(axis=1).mean():.3f}"
     )
+
     print(f"Sampled choice-set size: {cfg.N_SAMPLED_ALTERNATIVES + 1}")
     print(f"Empty-set redraws: {data['empty_set_redraws']}")
 
-    preview = np.column_stack(
-        [
-            data["consumer_id"],
-            data["market_id"],
-            data["chosen_product"],
-            data["true_set"].sum(axis=1),
-        ]
-    )
+    preview = np.column_stack([
+        data["consumer_id"],
+        data["market_id"],
+        data["chosen_product"],
+        data["true_set"].sum(axis=1),
+    ])
 
     print("\nFirst 10 decisions:")
     print("consumer  market  chosen_product  true_set_size")
